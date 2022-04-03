@@ -35,12 +35,14 @@ def getCPUGovernor() -> str:
 
 def setCPUGovernor(value: str):
     for filepath in glob.glob("/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"):
-        Path(filepath).write_text(value)
+        if Path(filepath).read_text() != value:
+            Path(filepath).write_text(value)
 
 
 def setCPUScalingMaxFreq(value: int):
     for filepath in glob.glob("/sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq"):
-        Path(filepath).write_text(str(value))
+        if int(Path(filepath).read_text()) != value:
+            Path(filepath).write_text(str(value))
 
 
 def check() -> int:
