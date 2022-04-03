@@ -3,7 +3,7 @@ Control CPU frequency based on tempature.
 
 # Criteria
 
-- Only for single processor PC
+- Only for single processor machine
 - Linux please
 
 # Usage
