@@ -1,0 +1,99 @@
+#!/usr/bin/python3
+
+from distutils.log import error
+from math import ceil, cos, pi
+import os
+from pathlib import Path
+import sys
+import glob
+from time import sleep
+
+NORMAL_TEMP = 50.0
+CRITICAL_TEMP = 85.0
+DIFF_TEMP = CRITICAL_TEMP-NORMAL_TEMP
+SNAP_TEMP = 5.0
+
+
+def getCPUMinFreq() -> float:
+    return float(Path("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq").read_text())
+
+
+def getCPUMaxFreq() -> float:
+    return float(Path("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq").read_text())
+
+
+def getCPUTemp() -> float:
+    result = 0.0
+    for filepath in glob.glob("/sys/class/thermal/thermal_zone*/temp"):
+        result = max(float(Path(filepath).read_text()), result)
+    return result / 1000.0
+
+
+def getCPUGovernor() -> str:
+    return Path("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor").read_text()
+
+
+def setCPUGovernor(value: str):
+    for filepath in glob.glob("/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"):
+        Path(filepath).write_text(value)
+
+
+def setCPUScalingMaxFreq(value: int):
+    for filepath in glob.glob("/sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq"):
+        Path(filepath).write_text(str(value))
+
+
+def check() -> int:
+    if (os.geteuid() != 0):
+        error("Please use this program under root privileges.")
+        return 1
+
+    return 0
+
+
+def process():
+    cpuGovernor = getCPUGovernor()
+
+    if (cpuGovernor == "powersave"):
+        return
+
+    cpuTempRaw = getCPUTemp()
+    cpuTempSnap = ceil(cpuTempRaw/SNAP_TEMP)*SNAP_TEMP
+
+    if (cpuGovernor != "conservative" and cpuTempSnap >= CRITICAL_TEMP):
+        setCPUGovernor("conservative")
+
+    scale = (cpuTempSnap-NORMAL_TEMP)/DIFF_TEMP
+    scale = max(0, min(1, scale))
+    scale = 1+cos(pi/2+scale*pi/2)
+
+    cpuMinFreq = getCPUMinFreq()
+    cpuMaxFreq = getCPUMaxFreq()
+
+    cpuMaxScalingFreq = int(cpuMinFreq+(cpuMaxFreq-cpuMinFreq)*scale)
+
+    setCPUScalingMaxFreq(cpuMaxScalingFreq)
+
+
+def loop():
+    while True:
+        try:
+            process()
+        except:
+            error("CPU Control 'process' function had failed.")
+        sleep(1.0)
+
+
+def main() -> int:
+    checkResult = check()
+
+    if (checkResult != 0):
+        return checkResult
+
+    loop()
+
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

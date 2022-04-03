@@ -1,0 +1,4 @@
+#!/usr/bin/bash
+
+./soystemd-uninstall
+./soystemd-install

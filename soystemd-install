@@ -1,0 +1,13 @@
+#!/usr/bin/bash -e
+
+[ ! -d /usr/local/bin ] && echo "No usr bin space." && exit 1
+[ ! -d /etc/systemd/system ] && echo "Cannot install for SystemD." && exit 1
+
+cp ./cpu-control /usr/local/bin/
+cp ./cpu-control.service /etc/systemd/system/
+
+chmod 640 /etc/systemd/system/cpu-control.service
+
+systemctl daemon-reload
+systemctl enable cpu-control
+systemctl start cpu-control
