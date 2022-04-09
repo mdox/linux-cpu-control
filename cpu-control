@@ -1,101 +1,81 @@
 #!/usr/bin/python3
 
-from distutils.log import error
-from math import ceil, cos, pi
-import os
+from glob import glob
 from pathlib import Path
-import sys
-import glob
 from time import sleep
 
-NORMAL_TEMP = 50.0
-CRITICAL_TEMP = 85.0
-DIFF_TEMP = CRITICAL_TEMP-NORMAL_TEMP
-SNAP_TEMP = 5.0
+# Consts
+TEMP_NORMAL: float = 50.0
+TEMP_TOLERATED: float = 75.0
+TEMP_CRITICAL: float = 90.0
+
+# Vars
+cpuinfo_minFreq: float = 0.0
+cpuinfo_maxFreq: float = 0.0
+cpuinfo_difFreq: float = 0.0
 
 
-def getCPUMinFreq() -> float:
-    return float(Path("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq").read_text())
-
-
-def getCPUMaxFreq() -> float:
-    return float(Path("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq").read_text())
-
-
-def getCPUTemp() -> float:
-    result = 0.0
-    for filepath in glob.glob("/sys/class/thermal/thermal_zone*/temp"):
+def cpu_getTemp() -> float:
+    result: float = 0.0
+    for filepath in glob("/sys/class/thermal/thermal_zone*/temp"):
         result = max(float(Path(filepath).read_text()), result)
     return result / 1000.0
 
 
-def getCPUGovernor() -> str:
+def cpu_getGovernor() -> str:
     return Path("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor").read_text()
 
 
-def setCPUGovernor(value: str):
-    for filepath in glob.glob("/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"):
-        if Path(filepath).read_text() != value:
-            Path(filepath).write_text(value)
+def cpu_getScalingMaxFreq() -> float:
+    return float(Path("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq").read_text())
 
 
-def setCPUScalingMaxFreq(value: int):
-    for filepath in glob.glob("/sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq"):
-        if int(Path(filepath).read_text()) != value:
-            Path(filepath).write_text(str(value))
-
-
-def check() -> int:
-    if (os.geteuid() != 0):
-        error("Please use this program under root privileges.")
-        return 1
-
-    return 0
+def cpu_setScalingMaxFreq(value):
+    for filepath in glob("/sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq"):
+        if int(Path(filepath).read_text()) != int(value):
+            Path(filepath).write_text(str(int(value)))
 
 
 def process():
-    cpuGovernor = getCPUGovernor()
-
-    if (cpuGovernor == "powersave"):
+    if (cpu_getGovernor() == "powersave"):
         return
 
-    cpuTempRaw = getCPUTemp()
-    cpuTempSnap = ceil(cpuTempRaw/SNAP_TEMP)*SNAP_TEMP
+    temp = cpu_getTemp()
 
-    if (cpuGovernor != "conservative" and cpuTempSnap >= CRITICAL_TEMP):
-        setCPUGovernor("conservative")
+    if (temp >= TEMP_TOLERATED):
+        scale = (temp-TEMP_TOLERATED)/(TEMP_CRITICAL-TEMP_TOLERATED)
+        cpu_setScalingMaxFreq(
+            max(
+                cpuinfo_minFreq,
+                cpu_getScalingMaxFreq() - cpuinfo_difFreq * 0.1 * scale
+            )
+        )
+    elif (temp >= TEMP_NORMAL):
+        scale = (temp-TEMP_NORMAL)/(TEMP_TOLERATED-TEMP_NORMAL)
+        cpu_setScalingMaxFreq(
+            min(
+                cpuinfo_maxFreq,
+                cpu_getScalingMaxFreq() + cpuinfo_difFreq * 0.1 * scale
+            )
+        )
+    else:
+        cpu_setScalingMaxFreq(cpuinfo_maxFreq)
 
-    scale = (cpuTempSnap-NORMAL_TEMP)/DIFF_TEMP
-    scale = max(0, min(1, scale))
-    scale = 1+cos(pi/2+scale*pi/2)
 
-    cpuMinFreq = getCPUMinFreq()
-    cpuMaxFreq = getCPUMaxFreq()
+def main():
+    global cpuinfo_minFreq, cpuinfo_maxFreq, cpuinfo_difFreq
 
-    cpuMaxScalingFreq = int(cpuMinFreq+(cpuMaxFreq-cpuMinFreq)*scale)
+    cpuinfo_minFreq = float(
+        Path("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq").read_text())
+    cpuinfo_maxFreq = float(
+        Path("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq").read_text())
 
-    setCPUScalingMaxFreq(cpuMaxScalingFreq)
+    cpuinfo_difFreq = cpuinfo_maxFreq-cpuinfo_minFreq
 
-
-def loop():
     while True:
-        try:
-            process()
-        except:
-            error("CPU Control 'process' function had failed.")
+        process()
         sleep(1.0)
 
 
-def main() -> int:
-    checkResult = check()
-
-    if (checkResult != 0):
-        return checkResult
-
-    loop()
-
-    return 0
-
-
 if __name__ == '__main__':
-    sys.exit(main())
+    main()
