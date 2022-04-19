@@ -6,7 +6,7 @@ from time import sleep
 
 # Consts
 TEMP_NORMAL: float = 50.0
-TEMP_TOLERATED: float = 75.0
+TEMP_TOLERATED: float = 70.0
 TEMP_CRITICAL: float = 90.0
 
 # Vars
